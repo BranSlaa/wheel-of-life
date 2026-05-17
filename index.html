@@ -1,0 +1,419 @@
+<header class="toolbar">
+	<h1 class="title">Wheel of Life</h1>
+	<button id="print-btn" class="print-btn" type="button">
+		Print / Save as PDF
+	</button>
+</header>
+<div id="wheel"></div>
+
+<script>
+	const labels = [
+		"Spirituality",
+		"Money & Finance",
+		"Career & Work",
+		"Health & Fitness",
+		"Fun & Recreation",
+		"Environment",
+		"Community",
+		"Family & Friends",
+		"Partner & Love",
+		"Growth & Learning",
+	];
+
+	const size = 900;
+	const cx = size / 2;
+	const cy = size / 2;
+	const radius = 390;
+	const levels = 10;
+	const segments = labels.length;
+
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+	svg.classList.add("wheel");
+
+	function polarToCartesian(angle, r) {
+		const rad = ((angle - 90) * Math.PI) / 180;
+
+		return {
+			x: cx + r * Math.cos(rad),
+			y: cy + r * Math.sin(rad),
+		};
+	}
+
+	function polygonPoints(r) {
+		return Array.from({ length: segments }, (_, i) => {
+			const angle = (i * 360) / segments;
+			const p = polarToCartesian(angle, r);
+			return `${p.x},${p.y}`;
+		}).join(" ");
+	}
+
+	// Rings
+	for (let i = 1; i <= levels; i++) {
+		const poly = document.createElementNS(
+			"http://www.w3.org/2000/svg",
+			"polygon",
+		);
+		poly.setAttribute("points", polygonPoints((radius / levels) * i));
+		poly.setAttribute("fill", "none");
+		poly.setAttribute("stroke", "#9ca3af");
+		poly.setAttribute("stroke-width", i === levels ? "1.5" : "1");
+		svg.appendChild(poly);
+	}
+
+	// Radial lines
+	for (let i = 0; i < segments; i++) {
+		const angle = (i * 360) / segments;
+		const outer = polarToCartesian(angle, radius);
+		const line = document.createElementNS(
+			"http://www.w3.org/2000/svg",
+			"line",
+		);
+
+		line.setAttribute("x1", cx);
+		line.setAttribute("y1", cy);
+		line.setAttribute("x2", outer.x);
+		line.setAttribute("y2", outer.y);
+		line.setAttribute("stroke", "#6b7280");
+		line.setAttribute("stroke-width", "1");
+
+		svg.appendChild(line);
+	}
+
+	// Centre hub - drawn before the highlights so the converging radial
+	// lines are hidden, but the highlights still render on top of it so
+	// level 1 selections (and the apex of higher-level selections) are
+	// visible inside the hub area.
+	const centerCircle = document.createElementNS(
+		"http://www.w3.org/2000/svg",
+		"circle",
+	);
+	centerCircle.setAttribute("cx", cx);
+	centerCircle.setAttribute("cy", cy);
+	centerCircle.setAttribute("r", 45);
+	centerCircle.setAttribute("fill", "white");
+	centerCircle.setAttribute("stroke", "#9ca3af");
+	centerCircle.setAttribute("stroke-width", "1");
+	centerCircle.setAttribute("pointer-events", "none");
+	svg.appendChild(centerCircle);
+
+	// Per-segment interactive cells. Each segment has 10 invisible level
+	// cells that capture clicks/hovers, plus two highlight polygons drawn
+	// underneath: a greyscale hover preview (under) and a coloured locked
+	// selection (over) so the selection stays visible while hovering.
+	const segmentData = [];
+
+	function trianglePoints(angle1, angle2, level) {
+		const p1 = polarToCartesian(angle1, (radius / levels) * level);
+		const p2 = polarToCartesian(angle2, (radius / levels) * level);
+		return `${cx},${cy} ${p1.x},${p1.y} ${p2.x},${p2.y}`;
+	}
+
+	function renderSegment(i) {
+		const data = segmentData[i];
+
+		if (data.selectedLevel !== null) {
+			data.selectedHighlight.setAttribute(
+				"points",
+				trianglePoints(data.angle1, data.angle2, data.selectedLevel),
+			);
+			data.selectedHighlight.classList.add("visible");
+		} else {
+			data.selectedHighlight.classList.remove("visible");
+		}
+
+		if (
+			data.hoverLevel !== null &&
+			data.hoverLevel !== data.selectedLevel
+		) {
+			data.hoverHighlight.setAttribute(
+				"points",
+				trianglePoints(data.angle1, data.angle2, data.hoverLevel),
+			);
+			data.hoverHighlight.classList.add("visible");
+		} else {
+			data.hoverHighlight.classList.remove("visible");
+		}
+	}
+
+	for (let i = 0; i < segments; i++) {
+		const angle1 = (i * 360) / segments;
+		const angle2 = ((i + 1) * 360) / segments;
+		const colour = `hsl(${(i * 360) / segments}, 70%, 55%)`;
+
+		const hoverHighlight = document.createElementNS(
+			"http://www.w3.org/2000/svg",
+			"polygon",
+		);
+		hoverHighlight.classList.add("hover-highlight");
+		hoverHighlight.setAttribute("pointer-events", "none");
+		svg.appendChild(hoverHighlight);
+
+		const selectedHighlight = document.createElementNS(
+			"http://www.w3.org/2000/svg",
+			"polygon",
+		);
+		selectedHighlight.classList.add("selected-highlight");
+		selectedHighlight.setAttribute("pointer-events", "none");
+		selectedHighlight.setAttribute("fill", colour);
+		svg.appendChild(selectedHighlight);
+
+		segmentData.push({
+			angle1,
+			angle2,
+			colour,
+			hoverHighlight,
+			selectedHighlight,
+			hoverLevel: null,
+			selectedLevel: null,
+		});
+
+		for (let level = 1; level <= levels; level++) {
+			const cell = document.createElementNS(
+				"http://www.w3.org/2000/svg",
+				"polygon",
+			);
+
+			let points;
+			if (level === 1) {
+				points = trianglePoints(angle1, angle2, level);
+			} else {
+				const p1In = polarToCartesian(angle1, (radius / levels) * (level - 1));
+				const p2In = polarToCartesian(angle2, (radius / levels) * (level - 1));
+				const p1Out = polarToCartesian(angle1, (radius / levels) * level);
+				const p2Out = polarToCartesian(angle2, (radius / levels) * level);
+				points = `${p1In.x},${p1In.y} ${p1Out.x},${p1Out.y} ${p2Out.x},${p2Out.y} ${p2In.x},${p2In.y}`;
+			}
+
+			cell.setAttribute("points", points);
+			cell.setAttribute("pointer-events", "all");
+			cell.classList.add("level-cell");
+
+			cell.addEventListener("mouseenter", () => {
+				segmentData[i].hoverLevel = level;
+				renderSegment(i);
+			});
+			cell.addEventListener("mouseleave", () => {
+				segmentData[i].hoverLevel = null;
+				renderSegment(i);
+			});
+			cell.addEventListener("click", () => {
+				const data = segmentData[i];
+				data.selectedLevel = data.selectedLevel === level ? null : level;
+				renderSegment(i);
+			});
+
+			svg.appendChild(cell);
+		}
+	}
+
+	// Numbers - placed at the geometric centroid of each cell so they read
+	// as visually centred. The cells are trapezoids (a triangle for level
+	// 1) whose outer edges are chords of the level rings, not arcs, so the
+	// naive polar midpoint sits much closer to the outer chord than the
+	// inner one. The centroid formula below accounts for both the chord
+	// geometry (cos factor) and the trapezoid bias toward the longer
+	// (outer) edge, and reduces cleanly to the triangle centroid at level
+	// 1 where the inner edge collapses to the centre point.
+	const halfSegmentAngle = Math.PI / segments;
+	function cellCenterRadius(level) {
+		const innerR = (radius / levels) * (level - 1);
+		const outerR = (radius / levels) * level;
+		return (
+			((2 / 3) *
+				Math.cos(halfSegmentAngle) *
+				(outerR ** 2 + outerR * innerR + innerR ** 2)) /
+			(outerR + innerR)
+		);
+	}
+
+	for (let segment = 0; segment < segments; segment++) {
+		const angle = (segment * 360) / segments + 360 / segments / 2;
+
+		for (let level = 1; level <= levels; level++) {
+			const p = polarToCartesian(angle, cellCenterRadius(level));
+
+			const text = document.createElementNS(
+				"http://www.w3.org/2000/svg",
+				"text",
+			);
+			text.textContent = level;
+			text.setAttribute("x", p.x);
+			text.setAttribute("y", p.y);
+			text.setAttribute("text-anchor", "middle");
+			text.setAttribute("dominant-baseline", "central");
+			text.setAttribute("font-size", "18");
+			text.setAttribute("fill", "#6b7280");
+			text.setAttribute("pointer-events", "none");
+
+			svg.appendChild(text);
+		}
+	}
+
+	// Outer labels
+	labels.forEach((label, i) => {
+		const angle = (i * 360) / segments + 360 / segments / 2;
+		const p = polarToCartesian(angle, radius + 35);
+
+		const text = document.createElementNS(
+			"http://www.w3.org/2000/svg",
+			"text",
+		);
+		text.textContent = label.toUpperCase();
+		text.setAttribute("x", p.x);
+		text.setAttribute("y", p.y);
+		text.setAttribute("text-anchor", "middle");
+		text.setAttribute("dominant-baseline", "middle");
+		text.setAttribute("font-size", "18");
+		text.setAttribute("letter-spacing", "1");
+		text.setAttribute("fill", "#6b7280");
+
+		// Rotate labels around the wheel
+		let rotation = angle;
+		if (angle > 90 && angle < 270) {
+			rotation += 180;
+		}
+
+		text.setAttribute("transform", `rotate(${rotation} ${p.x} ${p.y})`);
+
+		svg.appendChild(text);
+	});
+
+	document.getElementById("wheel").appendChild(svg);
+
+	// Wire up the print button. The browser's native print dialog includes
+	// a "Save as PDF" destination on macOS, Windows, Linux, iOS and Android,
+	// so a single window.print() call covers both print and save-to-PDF.
+	document.title = "Wheel of Life";
+	document
+		.getElementById("print-btn")
+		.addEventListener("click", () => window.print());
+</script>
+
+<style>
+	body {
+		margin: 0;
+		background: #f9fafb;
+		font-family: Arial, sans-serif;
+		min-height: 100vh;
+	}
+
+	.toolbar {
+		max-width: 900px;
+		margin: 24px auto 12px;
+		padding: 0 16px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+	}
+
+	.title {
+		margin: 0;
+		font-size: 28px;
+		font-weight: 600;
+		color: #111827;
+		letter-spacing: -0.02em;
+	}
+
+	.print-btn {
+		appearance: none;
+		border: 1px solid #d1d5db;
+		background: white;
+		color: #1f2937;
+		padding: 8px 16px;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition:
+			background-color 0.15s ease,
+			border-color 0.15s ease;
+	}
+
+	.print-btn:hover {
+		background: #f3f4f6;
+		border-color: #9ca3af;
+	}
+
+	.print-btn:active {
+		background: #e5e7eb;
+	}
+
+	#wheel {
+		width: min(900px, 100%);
+		margin: 0 auto;
+	}
+
+	.wheel {
+		width: 100%;
+		height: auto;
+		background: white;
+		font-family: Arial, sans-serif;
+	}
+
+	.level-cell {
+		fill: transparent;
+		cursor: pointer;
+	}
+
+	.hover-highlight {
+		fill: rgba(107, 114, 128, 0.25);
+		stroke: #6b7280;
+		stroke-width: 2;
+		stroke-linejoin: round;
+		opacity: 0;
+		transition: opacity 0.15s ease;
+	}
+
+	.hover-highlight.visible {
+		opacity: 1;
+	}
+
+	.selected-highlight {
+		fill-opacity: 0.55;
+		stroke: #000;
+		stroke-width: 3;
+		stroke-linejoin: round;
+		opacity: 0;
+		transition: opacity 0.15s ease;
+	}
+
+	.selected-highlight.visible {
+		opacity: 1;
+	}
+
+	@media print {
+		@page {
+			size: letter;
+			margin: 0.5in;
+		}
+
+		body {
+			background: white;
+		}
+
+		.toolbar {
+			margin: 0 auto 8px;
+		}
+
+		.print-btn {
+			display: none;
+		}
+
+		/* Suppress any stale hover preview that might be lingering when
+		   the user triggers print. */
+		.hover-highlight {
+			display: none !important;
+		}
+
+		/* Force SVG fills and CSS-driven opacities (the rainbow selected
+		   fills, the black borders, etc.) to render rather than getting
+		   stripped by the browser's "Background graphics" off default. */
+		.wheel,
+		.wheel * {
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
+		}
+	}
+</style>
